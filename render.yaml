@@ -1,0 +1,19 @@
+# Render blueprint — long-term free fallback (750 h/month, sleeps after 15 min idle).
+# Usage: push this repo to GitHub -> render.com -> New + -> Blueprint -> pick the repo.
+services:
+  - type: web
+    name: voiceguard-agent
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: VOICE_API_URL
+        value: https://pandaisop-voice-detection-api.hf.space/test
+      - key: GEMINI_API_KEY
+        sync: false   # prompted securely in the Render dashboard
+      - key: GROQ_API_KEY
+        sync: false
+      - key: VOICE_API_KEY
+        sync: false
+      - key: AGENT_API_KEY
+        sync: false

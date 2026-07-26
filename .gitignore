@@ -1,0 +1,22 @@
+# Secrets — never commit or upload
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Scratch
+b64.txt
+*.wav
+*.mp3
+.DS_Store
+.claude/
+
+# Windows / editors
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
