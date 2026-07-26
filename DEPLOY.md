@@ -92,6 +92,7 @@ python deploy.py
 
 | Symptom | Fix |
 |---|---|
+| "Application failed to respond" on the public URL while logs show the app healthy | Domain target port didn't match the app's port. Fixed permanently: `start.sh` now binds both `$PORT` and 7860 — just redeploy. (Manual alternative: edit the domain's target port to the port shown in the runtime logs.) |
 | Build fails | Check the platform's build logs (usually a missing file — re-upload) |
 | `/agent/health` shows `none (heuristic fallback)` | `GEMINI_API_KEY` variable missing or typo'd |
 | `/detect` returns 502 | Detection Space asleep (first call wakes it, ~1 min) or request-shape mismatch — set variable `VOICE_API_AUDIO_FIELD`, or send Claude the detection API's request JSON |

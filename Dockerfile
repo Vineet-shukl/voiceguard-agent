@@ -17,9 +17,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=appuser:appuser . .
 
+# Normalise line endings (Windows checkouts) and make the launcher executable.
+RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
+
 USER appuser
 
 EXPOSE 7860
 
-# Binds $PORT when the platform injects one (Railway/Render), else 7860 (HF Spaces).
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 2
+# start.sh binds the platform-injected $PORT and ALSO 7860, so a public domain
+# pointed at either port always reaches the app (Railway / Render / HF Spaces).
+CMD ["bash", "/app/start.sh"]
