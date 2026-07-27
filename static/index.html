@@ -68,11 +68,13 @@ a{color:var(--hi)}
 /* ---------- layout / panels ---------- */
 main{max-width:1100px;margin:0 auto;padding:22px 20px 90px}
 .panel{background:var(--ink1);border:1px solid var(--line2);border-radius:4px;padding:20px 22px;margin:0 0 14px}
+.panel.quiet{opacity:.55;transition:opacity .25s ease}
+.panel.quiet:hover,.panel.quiet:focus-within{opacity:1}
 .panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:8px}
 .sq{width:7px;height:7px;background:var(--dim);display:inline-block;flex:none}
 .sq.pulse{background:var(--hi);animation:blockpulse 1.4s ease-in-out infinite}
-.panel-title{font-family:var(--disp);font-size:17px;font-weight:700;letter-spacing:-.01em;margin:8px 0 0;flex-basis:100%}
+.panel-title{font-family:var(--disp);font-size:20px;font-weight:700;letter-spacing:-.012em;margin:8px 0 0;flex-basis:100%}
 .panel-body{margin-top:12px}
 .panel-note{color:var(--mid);font-size:13.5px;line-height:1.55;margin:12px 0 0;max-width:78ch}
 .empty-note{color:var(--dim);font-size:13px;border:1px dashed var(--line);padding:14px;border-radius:4px;margin:12px 0 0}
@@ -164,6 +166,7 @@ textarea{width:100%;min-height:118px;resize:vertical;font-family:var(--mono);fon
 .meter-track{position:relative;height:26px;border:1px solid var(--line);border-radius:3px;background-color:var(--ink3);background-image:repeating-linear-gradient(to right,rgba(233,238,243,.22) 0 1px,transparent 1px 10%),repeating-linear-gradient(to right,rgba(233,238,243,.08) 0 1px,transparent 1px 2%)}
 .meter-fill{position:absolute;top:4px;bottom:4px;left:0;width:0;opacity:.3;transition:width .9s cubic-bezier(.2,.7,.2,1)}
 .meter-prior{position:absolute;top:-4px;bottom:-4px;left:50%;width:1px;background:transparent;border-left:1px dashed rgba(233,238,243,.4)}
+.meter-prior-lab{position:absolute;top:-20px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--dim);white-space:nowrap}
 .meter-needle{position:absolute;top:-5px;bottom:-5px;width:3px;left:50%;transform:translateX(-1.5px);transition:left .9s cubic-bezier(.2,.7,.2,1);box-shadow:0 0 10px rgba(0,0,0,.7)}
 .meter-scale{position:relative;height:15px;margin-top:7px;font-size:10px;color:var(--dim);font-family:var(--mono)}
 .meter-scale span{position:absolute;top:0;transform:translateX(-50%)}
@@ -180,8 +183,9 @@ textarea{width:100%;min-height:118px;resize:vertical;font-family:var(--mono);fon
 .transcript.dimtxt{color:var(--dim)}
 
 /* ---------- claims ---------- */
-.claim{border:1px solid var(--line2);background:rgba(255,255,255,.015);border-radius:4px;padding:14px 16px;margin-top:10px}
+.claim{border:1px solid var(--line2);border-left:3px solid var(--claimcol,var(--line));background:rgba(255,255,255,.015);border-radius:4px;padding:14px 16px;margin-top:10px}
 .claim-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.claim-head .chip{font-size:12px;font-weight:700;padding:4px 10px;letter-spacing:.08em}
 .claim-text{font-size:15.5px;color:var(--hi);margin:10px 0 6px;line-height:1.5}
 .claim-rat{font-size:13px;color:var(--mid);margin:0;line-height:1.55}
 .linkrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:9px}
@@ -835,6 +839,7 @@ function tickProgress(){
 }
 function startProgress(hasAudio){
   running=true;goBtn.disabled=true;goBtn.textContent="Investigating…";
+  $("inputPanel").classList.add("quiet");
   errBanner.hidden=true;resultsEl.hidden=true;resultsEl.innerHTML="";forensicsSlot=null;
   buildStages(hasAudio);
   progressPanel.hidden=false;
@@ -853,6 +858,7 @@ function stopProgress(){
 var errBanner=$("errBanner"),errTitle=$("errTitle"),errBody=$("errBody");
 $("errClose").addEventListener("click",function(){errBanner.hidden=true;});
 function showError(err){
+  $("inputPanel").classList.remove("quiet");
   var title="Investigation failed",body="";
   err=err||{};
   if(err.kind==="http"){
@@ -926,11 +932,11 @@ function investigate(){
 var BAND_CLS={CRITICAL:"b-critical",HIGH:"b-high",MODERATE:"b-moderate",LOW:"b-low",MINIMAL:"b-minimal"};
 var BAND_COL={CRITICAL:"var(--critical)",HIGH:"var(--high)",MODERATE:"var(--moderate)",LOW:"var(--low)",MINIMAL:"var(--minimal)"};
 var CLAIM_STATUS={
-  refuted:["REFUTED","b-critical"],
-  disputed:["DISPUTED","b-high"],
-  unverified:["UNVERIFIED","b-neutral"],
-  corroborated:["CORROBORATED","b-minimal"],
-  no_evidence:["NO EVIDENCE","b-dim"]
+  refuted:["REFUTED","b-critical","var(--critical)"],
+  disputed:["DISPUTED","b-high","var(--high)"],
+  unverified:["UNVERIFIED","b-neutral","var(--mid)"],
+  corroborated:["CORROBORATED","b-minimal","var(--minimal)"],
+  no_evidence:["NO EVIDENCE","b-dim","var(--line)"]
 };
 var TIERS=[
   ["fact_checker","Fact-checkers"],
@@ -1022,8 +1028,9 @@ function renderHero(r){
   var track=h("div","meter-track");
   var fill=h("div","meter-fill");fill.style.background=bandCol;
   var prior=h("div","meter-prior");prior.title="fusion baseline — every case starts at 50";
+  var priorLab=h("span","meter-prior-lab","PRIOR 50");priorLab.title="fusion baseline — every case starts at 50";
   var needle=h("div","meter-needle");needle.style.background=bandCol;
-  track.appendChild(fill);track.appendChild(prior);track.appendChild(needle);
+  track.appendChild(fill);track.appendChild(prior);track.appendChild(priorLab);track.appendChild(needle);
   meter.appendChild(track);
   var scale=h("div","meter-scale");
   [0,25,50,75,100].forEach(function(nv){
@@ -1211,7 +1218,8 @@ function renderClaims(r){
   list.forEach(function(ca){
     ca=ca||{};
     var card=h("article","claim");
-    var st=CLAIM_STATUS[String(ca.status||"").toLowerCase()]||[String(ca.status||"UNKNOWN").toUpperCase(),"b-neutral"];
+    var st=CLAIM_STATUS[String(ca.status||"").toLowerCase()]||[String(ca.status||"UNKNOWN").toUpperCase(),"b-neutral","var(--mid)"];
+    card.style.setProperty("--claimcol",st[2]);
     var head=h("div","claim-head");
     head.appendChild(chip(st[0],st[1]));
     if(ca.claim_id)head.appendChild(h("span","mono dim tiny",String(ca.claim_id)));
