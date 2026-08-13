@@ -21,7 +21,6 @@ import argparse
 import base64
 import getpass
 import io
-import json
 import os
 import re
 import sys
@@ -42,7 +41,7 @@ SECRET_KEYS = [
     ("OPENROUTER_API_KEY", "OpenRouter key (optional 3rd LLM fallback)"),
     ("FACTCHECK_API_KEY", "Fact Check Tools key (blank = reuse Gemini key)"),
     ("VOICE_API_KEY", "Key for the deployed voice-detection API"),
-    ("AGENT_API_KEY", "Optional: require X-API-Key on this service's POST endpoints"),
+    ("AGENT_API_KEY", "Required unless --public-demo explicitly enables open POST endpoints"),
 ]
 
 
@@ -84,6 +83,11 @@ def main() -> int:
     ap.add_argument("--name", default=os.getenv("SPACE_NAME", "voiceguard-agent"),
                     help="Space name (default: voiceguard-agent)")
     ap.add_argument("--private", action="store_true", help="make the Space private")
+    ap.add_argument(
+        "--public-demo",
+        action="store_true",
+        help="explicitly allow unauthenticated POST requests (rate limits still apply)",
+    )
     ap.add_argument("--token", default=None, help="HF write token (else HF_TOKEN env / .env / prompt)")
     ap.add_argument("--skip-smoke", action="store_true", help="skip live endpoint tests")
     args = ap.parse_args()
@@ -113,7 +117,10 @@ def main() -> int:
     except Exception as exc:
         print(f"[!!] Token rejected: {exc}")
         return 1
-    owner = who.get("name")
+    owner = str(who.get("name") or "").strip()
+    if not owner:
+        print("[!!] Hugging Face account response did not include an owner name; aborting.")
+        return 1
     print(f"[ok] Logged in as: {owner}")
 
     repo_id = f"{owner}/{args.name}"
@@ -129,19 +136,32 @@ def main() -> int:
 
     # ---- secrets -----------------------------------------------------------
     print("\nSecrets (blank = skip). Values come from .env when present.")
+    configured_secrets: dict[str, str] = {}
     for key, help_text in SECRET_KEYS:
         val = env.get(key, "")
-        if not val and key in ("GEMINI_API_KEY", "GROQ_API_KEY"):
+        if key == "AGENT_API_KEY" and args.public_demo:
+            print("  [--] skipped:    AGENT_API_KEY (--public-demo enabled)")
+            continue
+        if not val and key in ("GEMINI_API_KEY", "GROQ_API_KEY", "AGENT_API_KEY"):
             try:
                 val = getpass.getpass(f"  {key} — {help_text}\n    value (hidden, Enter to skip): ").strip()
             except (EOFError, KeyboardInterrupt):
                 val = ""
+        if key == "AGENT_API_KEY" and not val:
+            print("[!!] AGENT_API_KEY is required unless --public-demo is supplied; aborting.")
+            return 1
         if val:
             api.add_space_secret(repo_id=repo_id, key=key, value=val)
+            configured_secrets[key] = val
             print(f"  [ok] secret set: {key}")
         else:
             print(f"  [--] skipped:    {key}")
 
+    api.add_space_variable(
+        repo_id=repo_id,
+        key="ALLOW_PUBLIC_DEMO",
+        value="true" if args.public_demo else "false",
+    )
     voice_url = env.get("VOICE_API_URL", "https://pandaisop-voice-detection-api.hf.space/test")
     api.add_space_variable(repo_id=repo_id, key="VOICE_API_URL", value=voice_url)
     print(f"  [ok] variable set: VOICE_API_URL = {voice_url}")
@@ -154,9 +174,10 @@ def main() -> int:
         repo_type="space",
         commit_message="Deploy VoiceGuard investigation agent",
         ignore_patterns=[
-            ".env", "**/.env", ".git*", "**/.git/**", "**/__pycache__/**",
+            ".env", ".env.*", "**/.env", "**/.env.*", "*.pem", "*.key",
+            "*.p12", "*.pfx", ".git*", "**/.git/**", "**/__pycache__/**",
             "*.pyc", "**/.pytest_cache/**", "venv/**", ".venv/**",
-            "b64.txt", "*.wav", "*.mp3", ".DS_Store", ".claude/**",
+            "b64.txt", "*.wav", "*.mp3", ".DS_Store", ".claude/**", ".zed/**",
         ],
     )
     print("[ok] Upload complete.")
@@ -195,7 +216,7 @@ def main() -> int:
         return 0
 
     # ---- live smoke tests ----------------------------------------------------
-    agent_key = env.get("AGENT_API_KEY", "")
+    agent_key = configured_secrets.get("AGENT_API_KEY", "")
     headers = {"X-API-Key": agent_key} if agent_key else {}
     ok = True
 

@@ -1,8 +1,8 @@
 # Audio Investigation Report
 
-**Investigation ID:** `inv_08e1285f2478`  
-**Generated:** 2026-07-26T10:22:33.067412+00:00  
-**Elapsed:** 1 ms
+**Investigation ID:** `inv_aa41047d44ff`  
+**Generated:** 2026-08-13T17:06:49.325039+00:00  
+**Elapsed:** 2 ms
 
 ---
 
@@ -68,7 +68,7 @@ Detector did not run for this request. No audio supplied; text-only investigatio
 - **Earliest dated reference:** unknown
 - **Sources retrieved:** 0
 - **Search rounds:** 2
-- **Tools used:** wikipedia, duckduckgo, gdelt
+- **Tools used:** none
 
 > Note: earliest dated reference reflects publication dates of retrieved articles, not the origin of the audio file itself. No public reverse-audio-search index exists, so true first-upload provenance cannot be established by this method.
 
@@ -94,7 +94,7 @@ Starting from a neutral 50/100:
 | `detect_audio` | degraded | 0 ms | skipped (no audio) |
 | `transcribe` | ok | 0 ms | 290 chars via client-supplied |
 | `extract_claims` | degraded | 0 ms | no LLM key — heuristic extraction |
-| `harvest_web` | degraded | 0 ms | 0 sources from 10 queries over 2 round(s) |
+| `harvest_web` | degraded | 1 ms | 0 sources from 10 queries over 2 round(s) |
 | `assess_claims` | ok | 0 ms | 3 claim(s) assessed |
 | `fuse_verdict` | ok | 0 ms | trust 50/100 → MODERATE |
 

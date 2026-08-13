@@ -36,8 +36,9 @@ the detection Space internally, so future projects only integrate one API.
 
 ### Auth
 
-Open by default. If the deployment sets the `AGENT_API_KEY` secret, every POST
-requires the header `X-API-Key: <value>` (401 otherwise).
+POST endpoints require the `AGENT_API_KEY` secret and the header
+`X-API-Key: <value>` (401 otherwise). A deployment is open only when its operator
+explicitly sets `ALLOW_PUBLIC_DEMO=true`; rate and concurrency limits still apply.
 
 ### Request
 

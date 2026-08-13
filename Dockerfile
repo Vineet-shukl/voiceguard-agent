@@ -24,6 +24,9 @@ USER appuser
 
 EXPOSE 7860
 
-# start.sh binds the platform-injected $PORT and ALSO 7860, so a public domain
-# pointed at either port always reaches the app (Railway / Render / HF Spaces).
+# Verify the app can serve requests before the platform routes traffic to it.
+# --start-period gives uvicorn time to initialise; 3 retries before unhealthy.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.getenv('PORT', '7860') + '/health', timeout=8)"
+
 CMD ["bash", "/app/start.sh"]

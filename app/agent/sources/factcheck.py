@@ -60,8 +60,8 @@ async def search(query: str, *, limit: int | None = None) -> list[Evidence]:
             "query": query,
             "pageSize": max(cap, 5),
             "languageCode": "en",
-            "key": cfg.factcheck_api_key,
         },
+        headers={"X-Goog-Api-Key": cfg.factcheck_api_key},
     )
     if not isinstance(data, dict):
         return []

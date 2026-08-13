@@ -18,8 +18,9 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Awaitable
+from typing import Any
 
-from .config import get_config
 from .detector import detect
 from .extract import extract
 from .fusion import assess_claim, fuse
@@ -45,14 +46,18 @@ class _Timer:
         return round((time.perf_counter() - self.t0) * 1000, 1)
 
 
+async def _timed(awaitable: Awaitable[Any]) -> tuple[Any, float]:
+    timer = _Timer()
+    result = await awaitable
+    return result, timer.ms()
+
+
 async def investigate(req: InvestigateRequest) -> InvestigationReport:
-    cfg = get_config()
     overall = _Timer()
     trace: list[TraceStep] = []
     inv_id = f"inv_{uuid.uuid4().hex[:12]}"
 
     # ---------------- Stage 1: acoustic detection + ASR, in parallel ----------
-    t = _Timer()
     if req.transcriptOverride:
         detection_task = detect(req.audioBase64, req.audioFormat, req.language)
         transcript_task = asyncio.sleep(
@@ -62,11 +67,20 @@ async def investigate(req: InvestigateRequest) -> InvestigationReport:
         detection_task = detect(req.audioBase64, req.audioFormat, req.language)
         transcript_task = transcribe(req.audioBase64, req.audioFormat)
 
-    (det_out, transcript) = await asyncio.gather(detection_task, transcript_task)
+    (det_timed, transcript_timed) = await asyncio.gather(
+        _timed(detection_task), _timed(transcript_task)
+    )
+    det_out, detect_duration_ms = det_timed
+    transcript, transcript_duration_ms = transcript_timed
     detection, det_note = det_out if isinstance(det_out, tuple) else (det_out, "")
 
     if not isinstance(detection, DetectionResult):
-        detection = DetectionResult(degraded=True, explanation="detector returned unexpected type")
+        detection = DetectionResult(
+            synthetic_probability=0.5,
+            confidence=0.0,
+            degraded=True,
+            explanation="detector returned unexpected type",
+        )
     if not isinstance(transcript, Transcript):
         transcript = Transcript(available=False, note="transcription returned unexpected type")
 
@@ -74,7 +88,7 @@ async def investigate(req: InvestigateRequest) -> InvestigationReport:
         TraceStep(
             node="detect_audio",
             status="degraded" if detection.degraded else "ok",
-            duration_ms=t.ms(),
+            duration_ms=detect_duration_ms,
             detail=det_note or detection.explanation[:160],
             payload={
                 "classification": detection.classification.value,
@@ -86,7 +100,7 @@ async def investigate(req: InvestigateRequest) -> InvestigationReport:
         TraceStep(
             node="transcribe",
             status="ok" if transcript.available else "degraded",
-            duration_ms=t.ms(),
+            duration_ms=transcript_duration_ms,
             detail=transcript.note or f"{len(transcript.text)} chars via {transcript.engine}",
             payload={"language": transcript.language or "unknown"},
         )

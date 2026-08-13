@@ -1,0 +1,40 @@
+# ── Secrets ───────────────────────────────────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ── Git / VCS ─────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Python cache ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# ── Virtual environments ─────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Dev artifacts ─────────────────────────────────────────────────────────
+b64.txt
+*.wav
+*.mp3
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+.zed/
+
+# ── Docs / CI ─────────────────────────────────────────────────────────────
+*.md
+tests/
+deploy.py
+verify_live.py

@@ -1108,17 +1108,11 @@ function investigate(){
     body.audioBase64=a.b64;body.audioFormat=a.format;
   }
   startProgress(!!body.audioBase64);
-  var detectP=null;
-  if(body.audioBase64){
-    detectP=apiPost("/detect",
-      {audioBase64:body.audioBase64,audioFormat:body.audioFormat,language:body.language},
-      {timeoutMs:120000}).catch(function(){return null;});
-  }
   apiPost("/investigate",body,{timeoutMs:180000}).then(function(report){
     stopProgress();
     try{renderResults(report);}
     catch(e){showError({kind:"render",message:"Report received but could not be rendered: "+e.message});return;}
-    if(detectP)detectP.then(function(d){if(d){try{renderForensics(d);}catch(e){}}});
+
   }).catch(function(err){
     stopProgress();
     showError(err);

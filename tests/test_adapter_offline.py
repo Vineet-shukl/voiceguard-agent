@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 for _k in (
     "VOICE_API_KEY",
+    "VOICE_API_AUTH_MODE",
     "VOICE_API_AUDIO_FIELD",
     "VOICE_API_URL",
     "VOICE_API_TIMEOUT",
@@ -38,7 +39,7 @@ from app.core import model  # noqa: E402
 PASS, FAIL = [], []
 
 
-def check(name, cond, info=""):
+def check(name: str, cond: object, info: object = ""):
     (PASS if cond else FAIL).append(name)
     print(f"  {'PASS' if cond else 'FAIL'}  {name}{(' — ' + str(info)) if info and not cond else ''}")
 
@@ -125,15 +126,16 @@ def test_happy_path_and_probe():
 
 
 def test_key_transport():
-    print("\n[A3] API key rides header + body")
+    print("\n[A3] API key uses one explicit transport")
     os.environ["VOICE_API_KEY"] = "sekret-123"
     try:
         net = wire([(200, SAMPLE)])
         asyncio.run(model.detect(GOOD_B64))
         c = net.calls[0]
         check("X-API-Key header", c["headers"].get("X-API-Key") == "sekret-123")
-        check("Bearer header", c["headers"].get("Authorization") == "Bearer sekret-123")
-        check("body apiKey field", c["payload"].get("apiKey") == "sekret-123")
+        check("no redundant Bearer header", "Authorization" not in c["headers"])
+        check("no key in request body", "apiKey" not in c["payload"])
+        check("no key in request URL", "sekret-123" not in c["url"])
     finally:
         os.environ.pop("VOICE_API_KEY", None)
 
@@ -163,27 +165,42 @@ def test_negotiation_via_422():
 
     net2 = wire([])  # fresh net, but negotiation cache survives wire()? No — reset.
     net2.script = [(200, SAMPLE)]
-    model._negotiated = {"fields": {"audio": "audio_data", "language": "lang"}, "query_key": False}
+    model._negotiated = {"fields": {"audio": "audio_data", "language": "lang"}}
     out2 = asyncio.run(model.detect(GOOD_B64))
     check("cached shape reused", isinstance(out2, dict) and "audio_data" in net2.calls[0]["payload"])
 
 
-def test_query_key_fallback():
-    print("\n[A5] 401 -> retries with query-string key")
-    os.environ["VOICE_API_KEY"] = "qk-9"
+def test_explicit_auth_modes():
+    print("\n[A5] Auth modes never expose keys in URLs")
+    os.environ["VOICE_API_KEY"] = "mode-key-9"
     try:
-
-        def need_query_key(url, payload, headers):
-            if "key=qk-9" in url:
-                return 200, SAMPLE
-            return 401, {"detail": "unauthorized"}
-
-        net = wire([need_query_key, need_query_key])
+        os.environ["VOICE_API_AUTH_MODE"] = "bearer"
+        bearer = wire([(200, SAMPLE)])
         out = asyncio.run(model.detect(GOOD_B64))
-        check("success via query key", isinstance(out, dict))
-        check("two calls", len(net.calls) == 2, len(net.calls))
-        check("query key in retry url", "key=qk-9" in net.calls[1]["url"])
+        check("Bearer mode succeeds", isinstance(out, dict))
+        check(
+            "Bearer mode uses Authorization only",
+            bearer.calls[0]["headers"] == {"Authorization": "Bearer mode-key-9"}
+            and "apiKey" not in bearer.calls[0]["payload"],
+            bearer.calls[0],
+        )
+
+        os.environ["VOICE_API_AUTH_MODE"] = "body"
+        body = wire([(200, SAMPLE)])
+        out = asyncio.run(model.detect(GOOD_B64))
+        check("body mode succeeds", isinstance(out, dict))
+        check(
+            "body mode omits auth headers",
+            body.calls[0]["headers"] == {}
+            and body.calls[0]["payload"].get("apiKey") == "mode-key-9",
+            body.calls[0],
+        )
+        check(
+            "auth modes never put keys in URLs",
+            all("mode-key-9" not in call["url"] for call in bearer.calls + body.calls),
+        )
     finally:
+        os.environ.pop("VOICE_API_AUTH_MODE", None)
         os.environ.pop("VOICE_API_KEY", None)
 
 
@@ -227,7 +244,7 @@ if __name__ == "__main__":
     test_happy_path_and_probe()
     test_key_transport()
     test_negotiation_via_422()
-    test_query_key_fallback()
+    test_explicit_auth_modes()
     test_transport_dead()
     test_pinned_field()
     test_soft_error_body()

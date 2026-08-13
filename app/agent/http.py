@@ -38,11 +38,8 @@ class HttpError(Exception):
 def _ssl_context() -> ssl.SSLContext:
     try:
         return ssl.create_default_context()
-    except Exception:  # pragma: no cover
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
+    except Exception as exc:  # pragma: no cover - depends on host CA configuration
+        raise HttpError("could not initialize a verified TLS context") from exc
 
 
 def _blocking_request(
@@ -95,7 +92,7 @@ async def request(
     cfg = get_config()
     to = timeout or cfg.http_timeout
 
-    if _HAS_HTTPX:
+    if _HAS_HTTPX and httpx is not None:
         hdrs = {"User-Agent": cfg.user_agent}
         if headers:
             hdrs.update(headers)

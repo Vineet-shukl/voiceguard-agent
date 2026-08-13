@@ -1,5 +1,10 @@
 # Secrets — never commit or upload
 .env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Python
 __pycache__/
@@ -20,3 +25,4 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+.zed/

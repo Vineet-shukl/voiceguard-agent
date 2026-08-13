@@ -43,7 +43,7 @@ from app.agent.sources import factcheck  # noqa: E402
 PASS, FAIL = [], []
 
 
-def check(name, cond, info=""):
+def check(name: str, cond: object, info: object = ""):
     (PASS if cond else FAIL).append(name)
     print(f"  {'PASS' if cond else 'FAIL'}  {name}{(' — ' + str(info)) if info and not cond else ''}")
 
@@ -83,6 +83,13 @@ def test_credibility():
         got = credibility.classify(url)
         check(f"{url[:42]:<42} -> {expected.value}", got == expected, f"got {got}")
     check("platform label X", credibility.platform_label("https://x.com/a/status/1") == "X (Twitter)")
+    for domain, label in [
+        ("discord.com", "Discord"), ("linkedin.com", "LinkedIn"),
+        ("quora.com", "Quora"), ("medium.com", "Medium"),
+        ("substack.com", "Substack"), ("tumblr.com", "Tumblr"),
+        ("vk.com", "VKontakte"), ("4chan.org", "4chan"),
+    ]:
+        check(f"platform label {label}", credibility.platform_label(f"https://{domain}/x") == label)
     check("subdomain match", credibility.classify("https://edition.cnn.com/x") == CredibilityTier.WIRE_OR_MAJOR)
 
 
@@ -179,6 +186,183 @@ def test_dedupe_and_rank():
     check("strong coverage ok", not harvest._coverage_is_weak([
         Evidence(url=f"https://reuters.com/{i}", credibility=CredibilityTier.WIRE_OR_MAJOR,
                  credibility_weight=.85) for i in range(4)]))
+
+
+def test_review_regressions():
+    print("\n[5b] Review regressions")
+    import app.agent.http as http_mod
+    from app.agent import graph as graph_mod
+
+    async def delayed(value, delay):
+        await asyncio.sleep(delay)
+        return value
+
+    async def collect_timings():
+        return await asyncio.gather(
+            graph_mod._timed(delayed("fast", 0.01)),
+            graph_mod._timed(delayed("slow", 0.06)),
+        )
+
+    fast, slow = asyncio.run(collect_timings())
+    check("parallel results preserved", fast[0] == "fast" and slow[0] == "slow")
+    check("parallel stages timed independently", slow[1] - fast[1] >= 30, (fast[1], slow[1]))
+
+    original_create_context = http_mod.ssl.create_default_context
+
+    def broken_context():
+        raise RuntimeError("CA store unavailable")
+
+    http_mod.ssl.create_default_context = broken_context
+    try:
+        try:
+            http_mod._ssl_context()
+        except http_mod.HttpError:
+            tls_failed_closed = True
+        else:
+            tls_failed_closed = False
+    finally:
+        http_mod.ssl.create_default_context = original_create_context
+    check("TLS setup failure never disables verification", tls_failed_closed)
+
+    provenance = HarvestResult(tools_used=["wikipedia:high_profile_match"])
+    harvest._record_tools(provenance, [
+        Evidence(url="https://example.com/a", source_tool="duckduckgo"),
+        Evidence(url="https://example.com/b", source_tool="gdelt"),
+        Evidence(url="https://example.com/c", source_tool="duckduckgo"),
+    ])
+    check(
+        "tool provenance comes from returned evidence",
+        provenance.tools_used == ["wikipedia:high_profile_match", "duckduckgo", "gdelt"],
+        provenance.tools_used,
+    )
+    empty_provenance = HarvestResult()
+    harvest._record_tools(empty_provenance, [])
+    check("enabled tools are not reported without evidence", empty_provenance.tools_used == [])
+
+
+def test_safe_route_errors():
+    print("\n[5c] Safe route errors")
+    from fastapi import HTTPException
+
+    import app.routes_investigate as routes
+
+    async def fail_investigation(_req):
+        raise RuntimeError("secret path: C:/internal/service.py")
+
+    original_investigate = routes.investigate
+    original_log_exception = routes._log.exception
+    routes.investigate = fail_investigation
+    routes._log.exception = lambda *_args, **_kwargs: None
+    failures = []
+    try:
+        req = InvestigateRequest(transcriptOverride="test")
+        for endpoint in (routes.investigate_endpoint, routes.investigate_markdown):
+            try:
+                asyncio.run(endpoint(req))
+            except HTTPException as exc:
+                failures.append((exc.status_code, exc.detail))
+    finally:
+        routes.investigate = original_investigate
+        routes._log.exception = original_log_exception
+
+    check("both investigation routes return HTTP errors", len(failures) == 2, failures)
+    check(
+        "500 responses hide internal exception details",
+        all(status == 500 and detail == "Investigation failed; check server logs."
+            for status, detail in failures),
+        failures,
+    )
+
+
+def test_api_abuse_controls():
+    print("\n[5d] API abuse controls")
+    from fastapi.testclient import TestClient
+
+    import app.main as main_mod
+
+    reached_app = False
+    sent = []
+
+    async def inner_app(_scope, receive, _send):
+        nonlocal reached_app
+        await receive()
+        await receive()
+        reached_app = True
+
+    async def exercise_chunked_limit():
+        messages = [
+            {"type": "http.request", "body": b"12345678", "more_body": True},
+            {"type": "http.request", "body": b"abcdefgh", "more_body": False},
+        ]
+
+        async def receive():
+            return messages.pop(0)
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/detect",
+            "headers": [(b"transfer-encoding", b"chunked")],
+        }
+        middleware = main_mod.BodySizeLimitMiddleware(inner_app, max_body_bytes=10)
+        await middleware(scope, receive, send)
+
+    asyncio.run(exercise_chunked_limit())
+    statuses = [m.get("status") for m in sent if m.get("type") == "http.response.start"]
+    check("chunked body limit uses actual bytes", statuses == [413], statuses)
+    check("oversized chunked body never reaches route", not reached_app)
+
+    old_agent_key = os.environ.get("AGENT_API_KEY")
+    old_public_demo = os.environ.get("ALLOW_PUBLIC_DEMO")
+    old_limit = main_mod._RATE_LIMIT_REQUESTS
+    try:
+        os.environ.pop("AGENT_API_KEY", None)
+        os.environ.pop("ALLOW_PUBLIC_DEMO", None)
+        main_mod._rate_window_count = 0
+        with TestClient(main_mod.app) as client:
+            closed = client.post("/detect", json={"audioBase64": "QUJD"})
+            check("POST API fails closed without auth config", closed.status_code == 503)
+
+            os.environ["AGENT_API_KEY"] = "test-agent-key"
+            denied = client.post("/detect", json={"audioBase64": "QUJD"})
+            check("wrong API key is rejected", denied.status_code == 401)
+
+            accepted = client.post(
+                "/detect",
+                headers={"X-API-Key": "test-agent-key"},
+                json={"audioBase64": "QUJD"},
+            )
+            check("valid key reaches input validation", accepted.status_code == 422)
+
+            main_mod._RATE_LIMIT_REQUESTS = 1
+            main_mod._rate_window_started = main_mod.time.monotonic()
+            main_mod._rate_window_count = 0
+            client.post(
+                "/detect",
+                headers={"X-API-Key": "test-agent-key"},
+                json={"audioBase64": "QUJD"},
+            )
+            limited = client.post(
+                "/detect",
+                headers={"X-API-Key": "test-agent-key"},
+                json={"audioBase64": "QUJD"},
+            )
+            check("protected POST budget returns 429", limited.status_code == 429)
+            check("rate-limit response includes Retry-After", "retry-after" in limited.headers)
+    finally:
+        main_mod._RATE_LIMIT_REQUESTS = old_limit
+        main_mod._rate_window_count = 0
+        if old_agent_key is None:
+            os.environ.pop("AGENT_API_KEY", None)
+        else:
+            os.environ["AGENT_API_KEY"] = old_agent_key
+        if old_public_demo is None:
+            os.environ.pop("ALLOW_PUBLIC_DEMO", None)
+        else:
+            os.environ["ALLOW_PUBLIC_DEMO"] = old_public_demo
 
 
 def test_fusion_scenarios():
@@ -301,11 +485,13 @@ def test_full_graph_offline():
 
 def test_bad_input():
     print("\n[8] Malformed input safety")
-    from app.agent.transcribe import decode_audio
+    from app.agent.transcribe import _multipart, decode_audio
     check("data URL decoded", decode_audio("data:audio/wav;base64,QUJD") == b"ABC")
     check("unpadded decoded", decode_audio("QUJD") == b"ABC")
     check("whitespace tolerated", decode_audio("QU\nJD ") == b"ABC")
     check("empty -> None", decode_audio("") is None)
+    multipart, _ = _multipart(b"audio", 'audio.wav"\r\nX-Injected: yes', "model")
+    check("multipart filename strips header injection", b"X-Injected" not in multipart)
     rep = asyncio.run(investigate(InvestigateRequest(transcriptOverride="hi")))
     check("trivial transcript safe", rep.verdict.trust_score >= 0)
     rep2 = asyncio.run(investigate(InvestigateRequest(audioBase64="!!!not base64!!!")))
@@ -322,6 +508,9 @@ if __name__ == "__main__":
     test_google_grounding_parser()
     test_heuristic_extraction()
     test_dedupe_and_rank()
+    test_review_regressions()
+    test_safe_route_errors()
+    test_api_abuse_controls()
     test_fusion_scenarios()
     test_full_graph_offline()
     test_bad_input()

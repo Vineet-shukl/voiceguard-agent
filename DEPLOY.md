@@ -31,7 +31,8 @@ Then open the project dashboard → **Variables** → add:
 | `GROQ_API_KEY` | your Groq key |
 | `VOICE_API_KEY` | your detection API key (see `.env`) |
 | `VOICE_API_URL` | `https://pandaisop-voice-detection-api.hf.space/test` |
-| `AGENT_API_KEY` | *(optional)* lock this service's POST endpoints |
+| `VOICE_API_AUTH_MODE` | detector auth transport: `x-api-key` (default), `bearer`, or `body` |
+| `AGENT_API_KEY` | strong random key required by all POST endpoints |
 
 Railway redeploys automatically after variables change. Verify:
 
@@ -76,6 +77,8 @@ deploy works unchanged and keeps both services on one platform:
 
 ```powershell
 python deploy.py
+# Or, only for an intentionally open rate-limited demo:
+# python deploy.py --public-demo
 ```
 
 (Creates the Space, sets secrets from `.env`, uploads, builds, smoke-tests.)
@@ -92,9 +95,11 @@ python deploy.py
 
 | Symptom | Fix |
 |---|---|
-| "Application failed to respond" on the public URL while logs show the app healthy | Domain target port didn't match the app's port. Fixed permanently: `start.sh` now binds both `$PORT` and 7860 — just redeploy. (Manual alternative: edit the domain's target port to the port shown in the runtime logs.) |
+| "Application failed to respond" on the public URL while logs show the app healthy | Ensure the platform routes to its injected `$PORT`; `start.sh` binds that port (default 7860). |
 | Build fails | Check the platform's build logs (usually a missing file — re-upload) |
 | `/agent/health` shows `none (heuristic fallback)` | `GEMINI_API_KEY` variable missing or typo'd |
 | `/detect` returns 502 | Detection Space asleep (first call wakes it, ~1 min) or request-shape mismatch — set variable `VOICE_API_AUDIO_FIELD`, or send Claude the detection API's request JSON |
-| 401 on POSTs | You set `AGENT_API_KEY` — send header `X-API-Key: <value>` |
+| 401 on POSTs | Send the configured key in `X-API-Key`. |
+| 503 `API authentication is not configured` | Set `AGENT_API_KEY`, or explicitly set `ALLOW_PUBLIC_DEMO=true` for a public demo. |
+| 429 on POSTs | The process-level request budget was reached; honor `Retry-After` or tune `RATE_LIMIT_REQUESTS`. |
 | Railway build has no network | Trial not GitHub-verified — link GitHub in account settings |

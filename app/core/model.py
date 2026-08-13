@@ -18,7 +18,8 @@ Design rules, identical to the rest of the pipeline:
 
 Environment:
     VOICE_API_URL           upstream endpoint (default: the deployed Space)
-    VOICE_API_KEY           API key, sent as X-API-Key + Bearer + body field
+    VOICE_API_KEY           API key for the detector
+    VOICE_API_AUTH_MODE     x-api-key (default), bearer, or body
     VOICE_API_TIMEOUT       seconds; generous default because a sleeping
                             Space can take ~1 min to wake (default 75)
     VOICE_API_AUDIO_FIELD   pin the audio field name, skipping negotiation
@@ -27,6 +28,7 @@ Environment:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -37,8 +39,11 @@ DEFAULT_VOICE_API_URL = "https://pandaisop-voice-detection-api.hf.space/test"
 
 _MAX_CALLS_PER_NEGOTIATION = 6
 _MIN_AUDIO_BYTES = 16
+_MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
-# Remembered request shape: {"fields": {...}, "query_key": bool}
+# Serialize detector access so cold-start negotiation cannot fan out per request.
+_detector_lock = asyncio.Lock()
+# Remembered request shape: {"fields": {...}}
 _negotiated: dict[str, Any] | None = None
 
 # Field-name shapes tried in order. Semantic keys: audio / format / language.
@@ -61,9 +66,13 @@ def _settings() -> dict[str, Any]:
         timeout = float(os.getenv("VOICE_API_TIMEOUT", "75"))
     except ValueError:
         timeout = 75.0
+    auth_mode = os.getenv("VOICE_API_AUTH_MODE", "x-api-key").strip().lower()
+    if auth_mode not in {"x-api-key", "bearer", "body"}:
+        auth_mode = "x-api-key"
     return {
         "url": os.getenv("VOICE_API_URL", DEFAULT_VOICE_API_URL).strip(),
         "key": os.getenv("VOICE_API_KEY", "").strip(),
+        "auth_mode": auth_mode,
         "timeout": timeout,
         "pin_field": os.getenv("VOICE_API_AUDIO_FIELD", "").strip(),
         "enabled": _flag("ENABLE_REMOTE_DETECTOR", True),
@@ -76,31 +85,31 @@ def _reset_negotiation() -> None:
     _negotiated = None
 
 
-def _headers(key: str) -> dict[str, str]:
+def _headers(key: str, auth_mode: str) -> dict[str, str]:
     if not key:
         return {}
-    # Send both common transports at once; servers ignore the one they
-    # don't use and it halves the negotiation matrix.
-    return {"X-API-Key": key, "Authorization": f"Bearer {key}"}
-
-
-def _with_query_key(url: str, key: str) -> str:
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}key={key}&api_key={key}"
+    if auth_mode == "bearer":
+        return {"Authorization": f"Bearer {key}"}
+    if auth_mode == "x-api-key":
+        return {"X-API-Key": key}
+    return {}
 
 
 def _payload(
-    fields: dict[str, str], b64: str, fmt: str, lang: str, key: str
+    fields: dict[str, str],
+    b64: str,
+    fmt: str,
+    lang: str,
+    key: str,
+    auth_mode: str,
 ) -> dict[str, Any]:
     p: dict[str, Any] = {fields["audio"]: b64}
     if fields.get("format"):
         p[fields["format"]] = fmt
     if fields.get("language"):
         p[fields["language"]] = lang
-    if key:
-        # FastAPI/pydantic servers ignore undeclared extra fields, so this is
-        # safe even when the key actually travels in a header.
-        p.setdefault("apiKey", key)
+    if key and auth_mode == "body":
+        p["apiKey"] = key
     return p
 
 
@@ -112,17 +121,12 @@ def _is_success(status: int, body: Any) -> bool:
     return str(body.get("status", "")).lower() == "success"
 
 
-def _failure_note(status: int, body: Any) -> str:
-    detail = ""
-    if isinstance(body, dict):
-        detail = str(
-            body.get("_transport_error")
-            or body.get("detail")
-            or body.get("message")
-            or body.get("error")
-            or ""
-        )
-    return f"HTTP {status}" + (f": {detail[:140]}" if detail else "")
+def _failure_note(status: int, _body: Any) -> str:
+    if status == 0:
+        return "upstream transport failed"
+    if status in {401, 403}:
+        return "upstream authentication failed"
+    return f"upstream returned HTTP {status}"
 
 
 def _fields_from_422(body: Any) -> dict[str, str] | None:
@@ -149,10 +153,16 @@ def _fields_from_422(body: Any) -> dict[str, str] | None:
     return learned if "audio" in learned else None
 
 
-async def _post(url: str, payload: dict[str, Any], key: str, timeout: float):
+async def _post(
+    url: str,
+    payload: dict[str, Any],
+    key: str,
+    auth_mode: str,
+    timeout: float,
+):
     try:
         return await _http.post_json(
-            url, payload, headers=_headers(key), timeout=timeout
+            url, payload, headers=_headers(key, auth_mode), timeout=timeout
         )
     except Exception as exc:  # post_json shouldn't raise, but stay paranoid
         return 0, {"_transport_error": str(exc)}
@@ -161,7 +171,21 @@ async def _post(url: str, payload: dict[str, Any], key: str, timeout: float):
 async def detect_raw(
     audio_b64: str, audio_format: str = "wav", language: str = "English"
 ) -> tuple[int, Any, str]:
-    """POST to the upstream detector. Returns (status, body, note). Never raises."""
+    """Validate audio, then call the upstream detector with bounded concurrency."""
+    if not audio_b64:
+        return 400, None, "audioBase64 is required"
+    raw = decode_audio(audio_b64)
+    if raw is None or len(raw) < _MIN_AUDIO_BYTES:
+        return 422, None, "audioBase64 is not valid audio data"
+    if len(raw) > _MAX_AUDIO_BYTES:
+        return 413, None, "decoded audio exceeds the 24 MB limit"
+    async with _detector_lock:
+        return await _detect_raw_locked(audio_b64, audio_format, language)
+
+
+async def _detect_raw_locked(
+    audio_b64: str, audio_format: str = "wav", language: str = "English"
+) -> tuple[int, Any, str]:
     global _negotiated
     s = _settings()
     if not s["enabled"] or not s["url"]:
@@ -170,14 +194,14 @@ async def detect_raw(
     # Fast path: a shape already worked in this process.
     if _negotiated:
         fields = _negotiated["fields"]
-        url = (
-            _with_query_key(s["url"], s["key"])
-            if _negotiated.get("query_key") and s["key"]
-            else s["url"]
-        )
         status, body = await _post(
-            url, _payload(fields, audio_b64, audio_format, language, s["key"]),
-            s["key"], s["timeout"],
+            s["url"],
+            _payload(
+                fields, audio_b64, audio_format, language, s["key"], s["auth_mode"]
+            ),
+            s["key"],
+            s["auth_mode"],
+            s["timeout"],
         )
         if _is_success(status, body):
             return 200, body, f"ok via '{fields['audio']}'"
@@ -202,29 +226,25 @@ async def detect_raw(
             break
         calls += 1
         status, body = await _post(
-            s["url"], _payload(fields, audio_b64, audio_format, language, s["key"]),
-            s["key"], s["timeout"],
+            s["url"],
+            _payload(
+                fields, audio_b64, audio_format, language, s["key"], s["auth_mode"]
+            ),
+            s["key"],
+            s["auth_mode"],
+            s["timeout"],
         )
         last_status, last_body = status, body
 
         if _is_success(status, body):
-            _negotiated = {"fields": fields, "query_key": False}
+            _negotiated = {"fields": fields}
             return 200, body, f"ok via '{fields['audio']}'"
 
         if status == 0:  # transport dead: retrying other shapes is pointless
             return 0, body, _failure_note(status, body)
 
-        if status in (401, 403) and s["key"] and calls < _MAX_CALLS_PER_NEGOTIATION:
-            calls += 1
-            status2, body2 = await _post(
-                _with_query_key(s["url"], s["key"]),
-                _payload(fields, audio_b64, audio_format, language, s["key"]),
-                s["key"], s["timeout"],
-            )
-            last_status, last_body = status2, body2
-            if _is_success(status2, body2):
-                _negotiated = {"fields": fields, "query_key": True}
-                return 200, body2, f"ok via '{fields['audio']}' + query key"
+        if status in (401, 403):
+            return status, body, _failure_note(status, body)
 
         if status == 422 and not tried_learned and calls < _MAX_CALLS_PER_NEGOTIATION:
             learned = _fields_from_422(body)
@@ -233,12 +253,21 @@ async def detect_raw(
                 calls += 1
                 status3, body3 = await _post(
                     s["url"],
-                    _payload(learned, audio_b64, audio_format, language, s["key"]),
-                    s["key"], s["timeout"],
+                    _payload(
+                        learned,
+                        audio_b64,
+                        audio_format,
+                        language,
+                        s["key"],
+                        s["auth_mode"],
+                    ),
+                    s["key"],
+                    s["auth_mode"],
+                    s["timeout"],
                 )
                 last_status, last_body = status3, body3
                 if _is_success(status3, body3):
-                    _negotiated = {"fields": learned, "query_key": False}
+                    _negotiated = {"fields": learned}
                     return 200, body3, f"ok via learned '{learned['audio']}'"
 
     note = (
@@ -273,9 +302,6 @@ async def detect(
     """Probe target for app/agent/detector.py. Returns the upstream JSON or None."""
     if not audio_base64:
         return None
-    raw = decode_audio(audio_base64)
-    if raw is None or len(raw) < _MIN_AUDIO_BYTES:
-        return None  # not plausibly audio; skip the network entirely
     status, body, _note = await detect_raw(audio_base64, audio_format, language)
     if status == 200 and isinstance(body, dict) and _is_success(status, body):
         return _enrich(dict(body))

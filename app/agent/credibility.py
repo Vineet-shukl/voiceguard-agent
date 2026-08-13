@@ -63,6 +63,10 @@ PLATFORM_LABELS = {
     "tiktok.com": "TikTok", "t.me": "Telegram", "telegram.me": "Telegram",
     "threads.net": "Threads", "whatsapp.com": "WhatsApp",
     "rumble.com": "Rumble", "bitchute.com": "BitChute",
+    "discord.com": "Discord", "linkedin.com": "LinkedIn",
+    "quora.com": "Quora", "medium.com": "Medium",
+    "substack.com": "Substack", "tumblr.com": "Tumblr",
+    "vk.com": "VKontakte", "4chan.org": "4chan",
 }
 
 

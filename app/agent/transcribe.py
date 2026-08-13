@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import os
 import uuid
 
 from .config import get_config
@@ -51,7 +50,11 @@ def decode_audio(audio_b64: str) -> bytes | None:
 
 def _multipart(audio: bytes, filename: str, model: str) -> tuple[bytes, str]:
     boundary = f"----VoiceGuard{uuid.uuid4().hex}"
-    mime = _MIME.get(filename.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+    extension = filename.rsplit(".", 1)[-1].lower()
+    if extension not in _MIME:
+        extension = "wav"
+    filename = f"audio.{extension}"
+    mime = _MIME[extension]
     parts: list[bytes] = []
 
     def field(name: str, value: str) -> None:
@@ -201,6 +204,8 @@ async def transcribe(audio_b64: str | None, audio_format: str = "wav") -> Transc
         )
 
     fmt = (audio_format or "wav").lower().lstrip(".")
+    if fmt not in _MIME:
+        return Transcript(available=False, note="unsupported audio format")
 
     if cfg.groq_api_key:
         result = await asyncio.to_thread(_blocking_transcribe, audio, fmt)

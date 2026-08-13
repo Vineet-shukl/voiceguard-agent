@@ -53,7 +53,7 @@ app.include_router(investigate_router)
 
 ```bash
 cp .env.example .env
-# paste your Gemini key (one key runs everything)
+# paste your Gemini key and set a strong AGENT_API_KEY
 ```
 
 **One free Google AI Studio key is enough**: Gemini handles claim extraction and

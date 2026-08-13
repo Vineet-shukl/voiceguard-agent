@@ -1,4 +1,7 @@
-fastapi>=0.110
-uvicorn[standard]>=0.29
-pydantic>=2.6
-httpx>=0.27
+# Pinned for reproducible deployments.
+# To upgrade: update these pins, run pip-audit, then run both offline suites.
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.3
+pydantic==2.13.4
+httpx==0.28.1

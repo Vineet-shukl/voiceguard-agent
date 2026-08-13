@@ -11,11 +11,15 @@ Your existing /detect endpoint is untouched.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from .agent import get_config, investigate, render_markdown
 from .agent.schemas import InvestigateRequest
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["investigation"])
 
@@ -45,8 +49,9 @@ async def investigate_endpoint(req: InvestigateRequest) -> dict[str, object]:
         )
     try:
         report = await investigate(req)
-    except Exception as exc:  # never leak a stack trace to the client
-        raise HTTPException(status_code=500, detail=f"investigation failed: {exc}") from exc
+    except Exception as exc:  # never leak internal details to the client
+        _log.exception("investigation failed")
+        raise HTTPException(status_code=500, detail="Investigation failed; check server logs.") from exc
     return report.model_dump(mode="json")
 
 
@@ -61,5 +66,6 @@ async def investigate_markdown(req: InvestigateRequest) -> str:
     try:
         report = await investigate(req)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"investigation failed: {exc}") from exc
+        _log.exception("investigation failed (markdown path)")
+        raise HTTPException(status_code=500, detail="Investigation failed; check server logs.") from exc
     return render_markdown(report)

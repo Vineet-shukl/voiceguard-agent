@@ -217,12 +217,23 @@ class InvestigationReport(BaseModel):
         return len(self.harvest.evidence)
 
 
+MAX_AUDIO_BASE64_CHARS = 34 * 1024 * 1024
+MAX_TRANSCRIPT_CHARS = 100_000
+
+
 class InvestigateRequest(BaseModel):
-    audioBase64: str | None = Field(None, description="Base64 audio payload")
-    audioFormat: str = "wav"
-    language: str = "English"
+    audioBase64: str | None = Field(
+        None,
+        max_length=MAX_AUDIO_BASE64_CHARS,
+        description="Base64 audio payload (24 MB decoded maximum)",
+    )
+    audioFormat: str = Field(
+        "wav", min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"
+    )
+    language: str = Field("English", min_length=1, max_length=64)
     transcriptOverride: str | None = Field(
         None,
+        max_length=MAX_TRANSCRIPT_CHARS,
         description="Skip ASR and investigate this text directly. Useful for demos "
         "and for text-only claim verification.",
     )

@@ -102,12 +102,14 @@ python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env            # add GEMINI_API_KEY and GROQ_API_KEY
+cp .env.example .env            # add provider keys and a strong AGENT_API_KEY
 
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open <http://localhost:8000> for the demo console, `/docs` for the API.
+Open <http://localhost:8000> for the demo console, `/docs` for the API. POST
+endpoints fail closed unless `AGENT_API_KEY` is set. For an intentionally open,
+rate-limited demo, set `ALLOW_PUBLIC_DEMO=true` instead.
 
 **Deploy to the cloud in one command** — `python deploy.py` (see
 [DEPLOY.md](DEPLOY.md)). The acoustic Wav2Vec2 engine runs as its own deployed
