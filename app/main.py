@@ -113,6 +113,7 @@ class BodySizeLimitMiddleware:
                 return
 
         received = 0
+        response_started = False
 
         async def limited_receive():
             nonlocal received
@@ -123,10 +124,18 @@ class BodySizeLimitMiddleware:
                     raise _RequestBodyTooLarge
             return message
 
+        async def tracking_send(message):
+            nonlocal response_started
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
         try:
-            await self.app(scope, limited_receive, send)
+            await self.app(scope, limited_receive, tracking_send)
         except _RequestBodyTooLarge:
-            await self._reject(scope, receive, send)
+            if not response_started:
+                await self._reject(scope, receive, send)
+            # If headers already sent, connection is broken; nothing safe to do.
 
     async def _reject(self, scope, receive, send, status_code: int = 413) -> None:
         if status_code == 413:
