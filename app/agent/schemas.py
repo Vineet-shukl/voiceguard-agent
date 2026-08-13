@@ -227,7 +227,7 @@ class InvestigateRequest(BaseModel):
         max_length=MAX_AUDIO_BASE64_CHARS,
         description="Base64 audio payload (24 MB decoded maximum)",
     )
-    audioFormat: str = Field(
+    audioFormat: str | None = Field(
         "wav", min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"
     )
     language: str = Field("English", min_length=1, max_length=64)
