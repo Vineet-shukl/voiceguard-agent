@@ -35,7 +35,7 @@ from typing import Any
 from app.agent import http as _http  # late-bound on purpose: tests patch attrs
 from app.agent.transcribe import decode_audio
 
-DEFAULT_VOICE_API_URL = "https://pandaisop-voice-detection-api.hf.space/test"
+DEFAULT_VOICE_API_URL = "https://pandaisop-voice-detection-api.hf.space/detect"
 
 _MAX_CALLS_PER_NEGOTIATION = 6
 _MIN_AUDIO_BYTES = 16
