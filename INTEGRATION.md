@@ -1,7 +1,6 @@
-# VoiceGuard Investigation Agent — Integration & Submission Guide
+# VoiceGuard Investigation Agent — Deep Dive & Integration Guide
 
-You have 2 hours. Do **Part 1** (15 min) and you have a working demo. Everything
-after that is polish.
+Comprehensive technical reference covering architecture, integration steps, and system design decisions.
 
 ---
 
@@ -203,13 +202,13 @@ Endpoints:
                   (JSON or Markdown)
 ```
 
-### Design decisions worth defending in a viva
+### Core design decisions & architectural rationale
 
 **The trust score is arithmetic, not an LLM opinion.** Starts at 50 (no
 information) and moves by fixed weights: up to −35 for synthetic audio, up to
 −40 for refuted claims, −20 for fact-checker "false" ratings, −10 for
-social-only circulation. Every point is itemised in `verdict.factors`, so a
-grader can recompute the total by hand. LLMs are used only for what they are
+social-only circulation. Every point is itemised in `verdict.factors`, so an
+evaluator can recompute the total by hand. LLMs are used only for what they are
 good at — reading a snippet and judging stance. A test asserts
 `score == 50 + sum(deltas)`.
 
@@ -231,9 +230,9 @@ with the network dead: 87/87 assertions pass and a full report still renders.
 **The Google stack is load-bearing, not decorative.** One AI Studio key powers
 four distinct capabilities: Gemini reasoning, server-side Google Search with
 citation metadata (grounding), native audio transcription, and the ClaimReview
-fact-check database. Judges can reproduce the demo with a single free key.
+fact-check database.
 
-### Known limitations — state these before a judge asks
+### Known limitations & engineering trade-offs
 
 1. **No reverse-audio search exists publicly.** There is no "Google Images for
    sound", so the agent cannot find where an audio *file* first appeared. It
@@ -242,35 +241,14 @@ fact-check database. Judges can reproduce the demo with a single free key.
 2. **Speaker identity comes from transcript wording only** — "I am X", or a
    narrator naming them. There is no voice biometric matching, so this is a
    hypothesis, not an identification. Flagged as a caveat in every report.
-3. **Grounded search quota.** Grounded Google Search has a free daily allowance
-   — plenty for a demo, but the agent auto-falls back to DuckDuckGo scraping
-   when it runs out. Empty results are treated as degradation, not truth. Say
-   this proactively: "the primary web source is an official Google API, with a
-   keyless scraper as the safety net."
+3. **Grounded search quota.** Grounded Google Search has a free daily allowance.
+   When exhausted, the agent auto-falls back to DuckDuckGo scraping. Empty
+   results are treated as degradation, not truth: the primary web source is an
+   official Google API, with a keyless scraper as the safety net.
 4. **X/Twitter is not searched** — the API is paid. Reddit and YouTube surface
    indirectly through web search instead.
 5. **English-centric.** Whisper transcribes ~99 languages, but the credibility
    table and fact-check queries are tuned for English and Indian sources.
-
-### 90-second demo script
-
-1. `GET /agent/health` — "every capability is declared up front."
-2. Upload a known deepfake clip → `POST /investigate/report`.
-3. Point at the acoustic result: 97% synthetic.
-4. Point at the transcript and the extracted claims — "this is the step that
-   turns unstructured audio into structured, searchable context."
-5. Point at the execution trace: two search rounds, N sources, tools used —
-   "the agent decided round 1 was insufficient and re-searched on its own."
-6. Point at the score breakdown table — "every point is attributable."
-7. Read the recommendation aloud.
-8. Close on the caveats section: "it also tells you what it *cannot* know."
-
-### If you have time left over
-
-In rough value order: get the Fact Check API key if you skipped it; record a
-fallback demo video in case conference wifi throttles DDG; add a small HTML page
-that renders the report at `/investigate/ui`; then RAG/vector storage of past
-investigations (nice-to-have, not needed for the alignment story).
 
 ---
 

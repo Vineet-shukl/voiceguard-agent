@@ -133,7 +133,7 @@ def main() -> int:
         print("           or set the VOICE_API_AUDIO_FIELD variable.")
 
     print("\n" + "=" * 60)
-    print("ALL GOOD" if failures == 0 else f"{failures} check(s) failed — paste this output to Claude")
+    print("ALL GOOD" if failures == 0 else f"{failures} check(s) failed — check deploy logs or file an issue")
     print("=" * 60)
     return 0 if failures == 0 else 1
 

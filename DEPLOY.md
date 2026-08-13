@@ -30,7 +30,7 @@ Then open the project dashboard → **Variables** → add:
 | `GEMINI_API_KEY` | your Google AI Studio key |
 | `GROQ_API_KEY` | your Groq key |
 | `VOICE_API_KEY` | your detection API key (see `.env`) |
-| `VOICE_API_URL` | `https://pandaisop-voice-detection-api.hf.space/test` |
+| `VOICE_API_URL` | `https://pandaisop-voice-detection-api.hf.space/detect` |
 | `VOICE_API_AUTH_MODE` | detector auth transport: `x-api-key` (default), `bearer`, or `body` |
 | `AGENT_API_KEY` | strong random key required by all POST endpoints |
 

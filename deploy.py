@@ -162,7 +162,7 @@ def main() -> int:
         key="ALLOW_PUBLIC_DEMO",
         value="true" if args.public_demo else "false",
     )
-    voice_url = env.get("VOICE_API_URL", "https://pandaisop-voice-detection-api.hf.space/test")
+    voice_url = env.get("VOICE_API_URL", "https://pandaisop-voice-detection-api.hf.space/detect")
     api.add_space_variable(repo_id=repo_id, key="VOICE_API_URL", value=voice_url)
     print(f"  [ok] variable set: VOICE_API_URL = {voice_url}")
 
